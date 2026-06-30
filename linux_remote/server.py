@@ -351,24 +351,31 @@ async def _docker_exec(session_id: str, container: str, command: str) -> str:
 
 
 async def _user_add(session_id: str, username: str, password: str = "", sudo: bool = False) -> str:
-    cmds = [f"id {username} &>/dev/null && echo 'USER_EXISTS' || useradd -m -s /bin/bash {username}"]
+    import shlex
+    u = shlex.quote(username)
+    cmds = [f"id {u} &>/dev/null && echo 'USER_EXISTS' || useradd -m -s /bin/bash {u}"]
     if password:
-        cmds.append(f"echo '{username}:{password}' | chpasswd")
+        p = shlex.quote(password)
+        cmds.append(f"echo '{u}:{p}' | chpasswd")
     if sudo:
-        cmds.append(f"usermod -aG sudo {username} 2>/dev/null || usermod -aG wheel {username} 2>/dev/null")
-        cmds.append(f"echo '{username} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{username} && chmod 440 /etc/sudoers.d/{username}")
+        cmds.append(f"usermod -aG sudo {u} 2>/dev/null || usermod -aG wheel {u} 2>/dev/null")
+        cmds.append(f"echo '{u} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{u} && chmod 440 /etc/sudoers.d/{u}")
     cmd = " && ".join(cmds)
     r = await mgr.exec(session_id, cmd, timeout=15)
     return json.dumps({**r, "username": username, "sudo": sudo}, ensure_ascii=False)
 
 
 async def _user_del(session_id: str, username: str) -> str:
-    r = await mgr.exec(session_id, f"userdel -r {username} 2>&1 && echo 'DELETED' || echo 'FAILED'")
+    import shlex
+    u = shlex.quote(username)
+    r = await mgr.exec(session_id, f"userdel -r {u} 2>&1 && echo 'DELETED' || echo 'FAILED'")
     return json.dumps(r, ensure_ascii=False)
 
 
 async def _ctf_serve_http(session_id: str, port: int = 8000, directory: str = ".") -> str:
-    cmd = f"cd {directory} && nohup python3 -m http.server {port} --bind 0.0.0.0 > /tmp/http-server-{port}.log 2>&1 & echo $!"
+    import shlex
+    d = shlex.quote(directory)
+    cmd = f"cd {d} && (python3 -m http.server {port} --bind 0.0.0.0 2>/dev/null || python -m SimpleHTTPServer {port} 2>/dev/null) > /tmp/http-server-{port}.log 2>&1 & echo $!"
     r = await mgr.exec(session_id, cmd, timeout=5)
     pid = r["stdout"].strip()
     return json.dumps({**r, "pid": pid, "port": port, "url": f"http://<host>:{port}"}, ensure_ascii=False)
